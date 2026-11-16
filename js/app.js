@@ -1,16 +1,24 @@
-/* App engine: placement test, lessons with mastery gates, spaced review, saving on the device. */
+/* App engine: placement test, lessons with mastery gates, units and checkpoints, spaced review, saving on the device. */
 (function(){
 'use strict';
 
-/* ---------- Subjects ---------- */
+/* ---------- Subjects ----------
+   Each subject (track) has an id letter and a list of units. A lesson belongs to the track whose
+   letter starts its id (m1 -> M) and to unit 1 unless the lesson says unit:2, unit:3 and so on.
+   per = checkpoint questions drawn from each lesson of that unit. */
 var TRACKS=[
- {id:'M',name:'Math',unit:'Algebra Unit 1: algebra from zero',per:2},
- {id:'P',name:'Physics',unit:'Physics Unit 1: motion, energy and electricity',per:4},
- {id:'A',name:'Anatomy and physiology',unit:'Anatomy Unit 1: body, heart and lungs',per:4}
+ {id:'M',name:'Math',units:[{title:'Algebra from zero',per:2},{title:'Powers, units and logarithms',per:3}]},
+ {id:'P',name:'Physics',units:[{title:'Motion, energy and electricity',per:4}]},
+ {id:'C',name:'Chemistry',units:[{title:'Atoms, water and concentration',per:4}]},
+ {id:'G',name:'Biology',units:[{title:'Cells, genes and inheritance',per:4}]},
+ {id:'B',name:'Biochemistry',units:[{title:'Molecules, enzymes and energy',per:4}]},
+ {id:'A',name:'Anatomy and physiology',units:[{title:'Body, heart and lungs',per:4}]},
+ {id:'S',name:'Statistics',units:[{title:'Averages, chance and cause',per:4}]},
+ {id:'N',name:'Neuroscience',units:[{title:'How neurons signal',per:4}]}
 ];
-var SOON=['Chemistry','Biology','Biochemistry','Statistics','Neuroscience'];
+var APPV='2';
 var STREAK=8, DAY=86400000, INTERVALS=[1,3,7,16,35,75];
-LESSONS.forEach(function(l){ l.track=l.id.charAt(0).toUpperCase(); if(!l.gens) l.gens=[]; if(!l.bank) l.bank=[]; });
+LESSONS.forEach(function(l){ l.track=l.id.charAt(0).toUpperCase(); if(!l.unit) l.unit=1; if(!l.gens) l.gens=[]; if(!l.bank) l.bank=[]; });
 
 /* ---------- Saved state ---------- */
 var KEY='rebuild.pwa.v1', mem=null, canStore=false;
@@ -23,16 +31,17 @@ function upgrade(o){
   if(!o.track||!hasTrack(o.track)) o.track=null;
   if(o.test.status==='done') o.placed=true;
   if(o.test.status==='active'&&o.test.d>=DOMAINS.length){ o.test.status='done'; o.placed=true; }
-  if(['home','learn','review','test'].indexOf(o.tab)<0) o.tab='home';
+  if(['home','learn','review','more','test','library','notes'].indexOf(o.tab)<0) o.tab='home';
   return o;
 }
 function load(){ try{ var s=window.localStorage.getItem(KEY); if(s){ var o=JSON.parse(s); if(o&&o.v===1&&o.test) return upgrade(o); } }catch(e){} return mem||fresh(); }
 function save(){ mem=state; try{ window.localStorage.setItem(KEY,JSON.stringify(state)); }catch(e){} }
 var state=load();
-var cur=null;      // current placement question
-var ses=null;      // current lesson / review / checkpoint session
-var armed=null;    // two-tap confirmation
+var cur=null;           // current placement question
+var ses=null;           // current lesson / review / checkpoint session
+var armed=null;         // two-tap confirmation
 var flash='';
+var updateReady=false;  // a newer version of the app has been downloaded
 
 /* ---------- Helpers ---------- */
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -44,6 +53,10 @@ function parseNum(s){ var m; s=String(s).replace(/[−–—]/g,'-').replace(/\s
   if(/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)||s.indexOf('.')>=0) s=s.replace(/,/g,''); else s=s.replace(',','.');
   s=s.replace(/[^0-9.\-]/g,''); if(s===''||s==='-'||s==='.'||s.lastIndexOf('-')>0) return NaN; return parseFloat(s); }
 function installed(){ try{ return window.navigator.standalone===true||window.matchMedia('(display-mode: standalone)').matches; }catch(e){ return false; } }
+function dayKey(d){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function yesterdayKey(){ var d=new Date(); d.setDate(d.getDate()-1); return dayKey(d); }
+function touchDay(){ var t=dayKey(new Date()); if(state.day===t) return; state.run=(state.day===yesterdayKey()?(state.run||0)+1:1); state.day=t; }
+function runNow(){ return (state.day===dayKey(new Date())||state.day===yesterdayKey())?(state.run||0):0; }
 
 /* ---------- Placement test ---------- */
 function answers(id){ var t=state.test; if(!t.ans[id]) t.ans[id]=[null,null,null,null,null,null,null,null]; return t.ans[id]; }
@@ -79,7 +92,7 @@ function hero(){
 }
 function installCard(){
   if(installed()) return '';
-  return '<div class="card"><h3>First, put this on your home screen</h3><p class="small">Do this before you start, so your progress is saved inside the installed app.</p><ul class="small"><li><strong>iPhone:</strong> open this page in Safari, tap the Share button, then “Add to Home Screen”.</li><li><strong>Android:</strong> open it in Chrome, tap the three dots, then “Install app” or “Add to Home screen”.</li></ul><p class="small muted" style="margin:0">Then open Rebuild from the new icon. After that it works with no internet.</p></div>';
+  return '<div class="card"><h3>Put this on your home screen</h3><p class="small">Do this before you start, so your progress is saved inside the installed app.</p><ul class="small"><li><strong>iPhone:</strong> open this page in Safari, tap the Share button, then “Add to Home Screen”.</li><li><strong>Android:</strong> open it in Chrome, tap the three dots, then “Install app” or “Add to Home screen”.</li></ul><p class="small muted" style="margin:0">Then open Rebuild from the new icon. After that it works with no internet.</p></div>';
 }
 function viewTest(){
   var t=state.test;
@@ -133,8 +146,8 @@ function viewQuestion(){
 function pips(p){ var s='<span class="pips" aria-hidden="true">', l; for(l=1;l<=4;l++) s+='<b class="'+(l<=p.lvl||p.extra.indexOf(l)>=0?'f':(p.shaky.indexOf(l)>=0?'h':''))+'"></b>'; return s+'</span>'; }
 function advice(id,p){
   if(!hasTrack(id)) return 'Lessons for this subject are coming later. Your level is saved for then.';
-  if(p.lvl===0) return 'Unit 1 is built for exactly this starting point. Begin at lesson 1 and take your time.';
-  return 'Unit 1 will be partly review for you. You still pass every gate, but you can skim the reading and go straight to it.';
+  if(p.lvl===0) return 'Begin at lesson 1 and take your time. Unit 1 is built for exactly this starting point.';
+  return 'Unit 1 may be review for you. You can take its checkpoint straight away to test out, or work through the lessons.';
 }
 function viewResults(){
   var k=counts(), h='<h2>Your placement</h2><p>You answered '+k.c+' of '+k.n+' questions correctly. Bars show the levels you passed; striped means half right.</p><div class="card">';
@@ -156,14 +169,27 @@ function viewResults(){
 
 /* ---------- Lesson engine ---------- */
 function trackById(id){ for(var k=0;k<TRACKS.length;k++) if(TRACKS[k].id===id) return TRACKS[k]; return TRACKS[0]; }
-function trackLessons(id){ return LESSONS.filter(function(l){ return l.track===id; }); }
+function unitLessons(tid,u){ return LESSONS.filter(function(l){ return l.track===tid&&l.unit===u; }); }
+function trackLessons(tid){ var n=trackById(tid).units.length, out=[], u; for(u=1;u<=n;u++) out=out.concat(unitLessons(tid,u)); return out; }
 function LS(id){ if(!state.L[id]) state.L[id]={pr:[0,0],miss:{},tries:0,ex:false,best:0,done:0,stage:0,due:0}; return state.L[id]; }
-function CP(tid){ if(!state.cps[tid]) state.cps[tid]={best:0,last:null}; return state.cps[tid]; }
-function cpSize(tid){ return trackLessons(tid).length*trackById(tid).per; }
-function cpPassed(tid){ var c=CP(tid); return c.last!==null&&c.best>=cpSize(tid)-1; }
+function cpKey(tid,u){ return u===1?tid:tid+u; }
+function CP(tid,u){ var k=cpKey(tid,u); if(!state.cps[k]) state.cps[k]={best:0,last:null}; return state.cps[k]; }
+function cpSize(tid,u){ return unitLessons(tid,u).length*trackById(tid).units[u-1].per; }
+function cpPassed(tid,u){ var c=CP(tid,u); return c.last!==null&&c.best>=cpSize(tid,u)-1; }
+function unitOpen(tid,u){ return u===1||cpPassed(tid,u-1); }
+function unitDone(tid,u){ return unitLessons(tid,u).every(function(l){ return LS(l.id).done>0; }); }
+/* Testing out: a learner whose placement passed level 1 may sit an open unit's checkpoint without doing its lessons. */
+function canTestOut(tid,u){ return unitOpen(tid,u)&&!unitDone(tid,u)&&placement(tid).lvl>=1; }
+function cpOpen(tid,u){ return unitOpen(tid,u)&&(unitDone(tid,u)||canTestOut(tid,u)); }
 function lessonById(id){ for(var k=0;k<LESSONS.length;k++) if(LESSONS[k].id===id) return LESSONS[k]; return null; }
-function unlockedL(l){ var tl=trackLessons(l.track), i=tl.indexOf(l); return i===0||LS(tl[i-1].id).done>0; }
-function nextIn(tid){ var tl=trackLessons(tid), k; for(k=0;k<tl.length;k++) if(!LS(tl[k].id).done) return tl[k]; return null; }
+function unlockedL(l){ var ul=unitLessons(l.track,l.unit), i=ul.indexOf(l); return unitOpen(l.track,l.unit)&&(i===0||LS(ul[i-1].id).done>0); }
+function nextStep(tid){
+  var n=trackById(tid).units.length, u, ul, k;
+  for(u=1;u<=n;u++){ ul=unitLessons(tid,u); if(!ul.length) continue;
+    for(k=0;k<ul.length;k++) if(!LS(ul[k].id).done) return {type:'lesson',l:ul[k],u:u};
+    if(!cpPassed(tid,u)) return {type:'cp',u:u}; }
+  return {type:'done'};
+}
 function doneIn(tid){ return trackLessons(tid).filter(function(l){ return LS(l.id).done>0; }).length; }
 function masteredList(){ return LESSONS.filter(function(l){ return LS(l.id).done>0; }); }
 function dueLessons(){ var now=Date.now(); return LESSONS.filter(function(l){ var s=LS(l.id); return s.done>0&&s.due<=now; }); }
@@ -189,10 +215,13 @@ function startReview(affects){
   else { for(k=0;k<6;k++) q.push(makeProb(pk(src).id,-1,used)); }
   ses={kind:affects?'review':'mixed',queue:mix(q),idx:0,phase:'ask',ok:false,raw:'',pick:null,results:[],summary:null}; state.tab='review'; return true;
 }
-function startCheckpoint(tid){ var q=[], used={}, per=trackById(tid).per;
-  if(doneIn(tid)!==trackLessons(tid).length) return;
-  trackLessons(tid).forEach(function(l){ var last=-1, k, p; for(k=0;k<per;k++){ p=makeProb(l.id,last,used); last=p.gi; q.push(p); } });
-  ses={kind:'cp',tid:tid,queue:mix(q),idx:0,phase:'ask',results:[],raw:'',pick:null}; state.tab='learn'; state.track=tid; }
+function startCheckpoint(tid,u){
+  var q=[], used={}, per;
+  if(!hasTrack(tid)||!trackById(tid).units[u-1]||!cpOpen(tid,u)) return;
+  per=trackById(tid).units[u-1].per;
+  unitLessons(tid,u).forEach(function(l){ var last=-1, k, p; for(k=0;k<per;k++){ p=makeProb(l.id,last,used); last=p.gi; q.push(p); } });
+  ses={kind:'cp',tid:tid,u:u,testOut:!unitDone(tid,u),queue:mix(q),idx:0,phase:'ask',results:[],raw:'',pick:null}; state.tab='learn'; state.track=tid;
+}
 function curProb(){ if(!ses) return null; return ses.kind==='lesson'?ses.prob:ses.queue[ses.idx]; }
 function finishReview(){
   var by={}, out=[];
@@ -202,14 +231,19 @@ function finishReview(){
     out.push({title:l.title,right:b[0],total:b[1],next:ses.kind==='review'?whenText(s.due):''}); });
   ses.summary=out; ses.phase='done'; save();
 }
-function finishCheckpoint(){ var c=0, cp=CP(ses.tid); ses.results.forEach(function(r){ if(r.ok) c++; });
-  cp.last=c; cp.at=Date.now(); if(c>cp.best) cp.best=c; ses.phase='done'; ses.score=c; save(); }
+function finishCheckpoint(){
+  var c=0, cp=CP(ses.tid,ses.u), now=Date.now();
+  ses.results.forEach(function(r){ if(r.ok) c++; });
+  cp.last=c; cp.at=now; if(c>cp.best) cp.best=c; ses.phase='done'; ses.score=c;
+  if(ses.testOut&&c>=ses.queue.length-1) unitLessons(ses.tid,ses.u).forEach(function(l){ var s=LS(l.id); if(!s.done){ s.done=now; s.ex=true; s.tested=true; s.stage=0; s.due=now+DAY*INTERVALS[0]; } });
+  save();
+}
 function doCheck(){
   var el=document.getElementById('pin'), p=curProb(), v, ok, s, g;
   if(!p||ses.phase!=='ask') return;
   if(p.o){ if(ses.pick===null||ses.pick===undefined) return; ok=ses.pick===0; ses.raw=p.o[ses.pick]; }
   else { if(!el) return; v=parseNum(el.value); if(isNaN(v)) return; ok=Math.abs(v-p.a)<=p.tol+1e-9; ses.raw=el.value.trim(); }
-  s=LS(p.lid); ses.ok=ok; ses.pick=null;
+  s=LS(p.lid); ses.ok=ok; ses.pick=null; touchDay();
   if(ses.kind==='lesson'){
     ses.phase='fb';
     if(ses.mode==='practice'){ s.pr[1]++; if(ok) s.pr[0]++; else s.miss[p.gi]=(s.miss[p.gi]||0)+1; }
@@ -262,7 +296,7 @@ function learnBody(L){
 }
 function streakBar(n,total){ var s='<div class="streak" aria-hidden="true">', k; for(k=0;k<total;k++) s+='<i class="'+(k<n?'f':'')+'"></i>'; return s+'</div>'; }
 function gateBody(L,s){
-  var tl=trackLessons(L.track), idx=tl.indexOf(L), nx=tl[idx+1], h='', earlier;
+  var ul=unitLessons(L.track,L.unit), idx=ul.indexOf(L), nx=ul[idx+1], tl=trackLessons(L.track), h='', earlier;
   if(ses.justDone){
     h='<div class="card"><h3>Lesson mastered</h3><p>Eight in a row, with the idea explained in your own words. This lesson comes back for review tomorrow, then at longer and longer gaps.</p>';
     h+=nx?'<button class="btn" data-act="lesson" data-id="'+nx.id+'">Open lesson '+(idx+2)+': '+esc(nx.title)+'</button>':'<button class="btn" data-act="lessons">Go to the checkpoint</button>';
@@ -283,7 +317,7 @@ function gateBody(L,s){
     return h;
   }
   if(!ses.prob){
-    earlier=tl.slice(0,idx).filter(function(l){ return LS(l.id).done>0; });
+    earlier=tl.slice(0,tl.indexOf(L)).filter(function(l){ return LS(l.id).done>0; });
     if(ses.n%4===3&&earlier.length){ ses.prob=makeProb(pk(earlier).id,-1,ses.used); ses.prob.old=true; }
     else ses.prob=makeProb(L.id,ses.last,ses.used);
   }
@@ -306,31 +340,40 @@ function viewLesson(){
   return h;
 }
 function viewCheckpoint(){
-  var h, p, t=trackById(ses.tid), n=ses.queue.length;
+  var h, p, t=trackById(ses.tid), n=ses.queue.length, pass, more;
   if(ses.phase==='done'){
-    h='<h2>'+esc(t.name)+' checkpoint</h2><div class="card"><h3>'+ses.score+' of '+n+'</h3><p>'+(ses.score>=n-1?'Passed. This unit is complete. Unit 2 will be added to the app later; until then, keep up with your reviews.':'Not passed yet. You need '+(n-1)+'. Review the misses below, practice those lessons, and take it again.')+'</p></div>';
+    pass=ses.score>=n-1; more=!!t.units[ses.u]&&unitLessons(ses.tid,ses.u+1).length>0;
+    h='<h2>'+esc(t.name)+', Unit '+ses.u+' checkpoint</h2><div class="card"><h3>'+ses.score+' of '+n+'</h3><p>'+
+      (pass?'Passed. '+(ses.testOut?'You tested out: every lesson in this unit now counts as mastered and will come back for review. ':'')+(more?'Unit '+(ses.u+1)+' is now open.':'This is the last unit built so far. More will be added later; until then, keep up with your reviews.')
+           :'Not passed yet. You need '+(n-1)+'. '+(ses.testOut?'Work through the lessons in this unit, then come back.':'Review the misses below, practice those lessons, and take it again.'))+'</p></div>';
     ses.results.forEach(function(r){ if(r.ok) return; h+='<div class="card">'+fbUI(r.p,false,r.raw)+'<p class="small muted" style="margin-top:8px">From: '+esc(lessonById(r.p.lid).title)+'</p></div>'; });
     return h+'<button class="btn" data-act="lessons">Back to '+esc(t.name)+'</button>';
   }
   p=ses.queue[ses.idx];
-  return '<div class="where"><span>'+esc(t.name)+' checkpoint</span><span>Question '+(ses.idx+1)+' of '+n+'</span></div><div class="strip" aria-hidden="true">'+ses.queue.map(function(_,k){ return '<i class="'+(k<ses.idx?'d':(k===ses.idx?'c':''))+'"></i>'; }).join('')+'</div>'+
+  return '<div class="where"><span>'+esc(t.name)+', Unit '+ses.u+' checkpoint</span><span>Question '+(ses.idx+1)+' of '+n+'</span></div><div class="strip" aria-hidden="true">'+ses.queue.map(function(_,k){ return '<i class="'+(k<ses.idx?'d':(k===ses.idx?'c':''))+'"></i>'; }).join('')+'</div>'+
     '<p class="small muted">No feedback until the end. One slip is allowed.</p>'+probUI(p,'');
 }
+function stepText(tid){ var s=nextStep(tid); return s.type==='lesson'?'Next: '+s.l.title:(s.type==='cp'?'Next: Unit '+s.u+' checkpoint':'Everything built so far is complete'); }
+function trackRow(t){
+  var n=trackLessons(t.id).length, d=doneIn(t.id), fin=nextStep(t.id).type==='done';
+  return '<button class="lrow" data-act="track" data-id="'+t.id+'"><span><strong>'+esc(t.name)+'</strong><br><span class="small muted">'+esc(stepText(t.id))+'</span></span><span class="tag'+(fin?'':' skip')+'">'+(fin?'Complete':d+' of '+n)+'</span></button>';
+}
 function viewTracks(){
-  var h='<h2>Subjects</h2><p>Three subjects are open, side by side. Do some math in every session, because physics leans on it. Take the others in any order.</p>';
-  TRACKS.forEach(function(t){ var n=trackLessons(t.id).length, d=doneIn(t.id), pass=cpPassed(t.id);
-    h+='<button class="lrow" data-act="track" data-id="'+t.id+'"><span><strong>'+esc(t.name)+'</strong><br><span class="small muted">'+esc(t.unit)+'</span></span><span class="tag'+(pass||d===n?'':' skip')+'">'+(pass?'Unit passed':d+' of '+n)+'</span></button>'; });
-  h+='<h3 style="margin-top:22px">Coming later</h3>';
-  SOON.forEach(function(n){ h+='<button class="lrow" disabled><span><strong>'+esc(n)+'</strong></span><span class="tag skip">Not built yet</span></button>'; });
+  var h='<h2>Subjects</h2><p>Eight subjects, all open, side by side. Do some math in every session, because physics and chemistry lean on it. Take the others in any order.</p>';
+  TRACKS.forEach(function(t){ h+=trackRow(t); });
   return h;
 }
 function viewTrack(tid){
-  var t=trackById(tid), tl=trackLessons(tid), all=doneIn(tid)===tl.length, cp=CP(tid), n=cpSize(tid), pass=cpPassed(tid);
-  var h='<button class="btn ghost" style="margin:0 0 14px" data-act="tracks">All subjects</button><h2>'+esc(t.unit)+'</h2><p>'+tl.length+' lessons, each with a thread of real neuroscience. A lesson opens only when you have mastered the one before it.</p>';
-  tl.forEach(function(l,k){ var s=LS(l.id), open=unlockedL(l);
-    h+='<button class="lrow" data-act="lesson" data-id="'+l.id+'"'+(open?'':' disabled')+'><span><strong>'+(k+1)+'. '+esc(l.title)+'</strong><br><span class="small muted">'+esc(l.sub)+'</span></span><span class="tag'+(s.done?'':' skip')+'">'+(s.done?'Mastered':(open?'Open':'Locked'))+'</span></button>'; });
-  h+='<button class="lrow" data-act="cp" data-id="'+tid+'"'+(all?'':' disabled')+'><span><strong>Checkpoint</strong><br><span class="small muted">'+n+' mixed questions, no feedback until the end. Pass mark '+(n-1)+'.'+(cp.last!==null?' Best so far: '+cp.best+'.':'')+'</span></span><span class="tag'+(pass?'':' skip')+'">'+(pass?'Passed':(all?'Open':'Locked'))+'</span></button>';
-  return h+'<p class="small muted" style="margin-top:14px">Unit 2 of this subject will be added later.</p>';
+  var t=trackById(tid), h='<button class="btn ghost" style="margin:0 0 14px" data-act="tracks">All subjects</button><h2>'+esc(t.name)+'</h2><p>A lesson opens when you have mastered the one before it. A unit opens when you pass the checkpoint of the unit before it.</p>';
+  t.units.forEach(function(un,ui){
+    var u=ui+1, ul=unitLessons(tid,u), open=unitOpen(tid,u), cp=CP(tid,u), n=cpSize(tid,u), pass=cpPassed(tid,u), cpo=cpOpen(tid,u), to=canTestOut(tid,u);
+    if(!ul.length) return;
+    h+='<h3 style="margin-top:22px">Unit '+u+': '+esc(un.title)+(open?'':'<span class="tag skip">Locked</span>')+'</h3>';
+    ul.forEach(function(l,k){ var s=LS(l.id), lo=unlockedL(l);
+      h+='<button class="lrow" data-act="lesson" data-id="'+l.id+'"'+(lo?'':' disabled')+'><span><strong>'+(k+1)+'. '+esc(l.title)+'</strong><br><span class="small muted">'+esc(l.sub)+'</span></span><span class="tag'+(s.done?'':' skip')+'">'+(s.done?'Mastered':(lo?'Open':'Locked'))+'</span></button>'; });
+    h+='<button class="lrow" data-act="cp" data-id="'+tid+'" data-u="'+u+'"'+(cpo?'':' disabled')+'><span><strong>Unit '+u+' checkpoint</strong><br><span class="small muted">'+n+' mixed questions, no feedback until the end. Pass mark '+(n-1)+'.'+(to?' Your placement lets you take it now to test out of this unit.':'')+(cp.last!==null?' Best so far: '+cp.best+'.':'')+'</span></span><span class="tag'+(pass?'':' skip')+'">'+(pass?'Passed':(cpo?(to?'Test out':'Open'):'Locked'))+'</span></button>';
+  });
+  return h+'<p class="small muted" style="margin-top:14px">More units will be added to this subject later.</p>';
 }
 function viewLearn(){
   if(ses&&ses.kind==='lesson') return viewLesson();
@@ -363,53 +406,82 @@ function viewReviewRun(){
 }
 
 /* ---------- Home ---------- */
+function contCard(tid,first){
+  var t=trackById(tid), s=nextStep(tid), tl=trackLessons(tid), d=doneIn(tid), bar='<div class="streak" aria-hidden="true">', k, head=(first?'Start here: ':'Continue: ')+esc(t.name);
+  for(k=0;k<tl.length;k++) bar+='<i class="'+(LS(tl[k].id).done?'f':'')+'"></i>';
+  bar+='</div>';
+  if(s.type==='lesson') return '<div class="card"><h2>'+head+'</h2><p><strong>'+esc(s.l.title)+'.</strong> '+esc(s.l.sub)+'</p><p class="small muted" style="margin:0">'+d+' of '+tl.length+' lessons mastered</p>'+bar+'<button class="btn" data-act="lesson" data-id="'+s.l.id+'">Open the lesson</button></div>';
+  if(s.type==='cp') return '<div class="card"><h2>'+esc(t.name)+': ready for the Unit '+s.u+' checkpoint</h2><p>Every lesson in the unit is mastered. The checkpoint is '+cpSize(tid,s.u)+' mixed questions with no feedback until the end.</p>'+bar+'<button class="btn" data-act="cp" data-id="'+tid+'" data-u="'+s.u+'">Take the checkpoint</button></div>';
+  return '<div class="card"><h2>'+esc(t.name)+': complete so far</h2><p>You have finished everything built for this subject. Pick another below, and keep up with your reviews.</p>'+bar+'</div>';
+}
+function viewHome(){
+  var h=hero(), due=dueLessons(), m=masteredList().length, run=runNow();
+  if(updateReady) h+='<div class="card"><h3>An update is ready</h3><p class="small">New lessons or fixes have been downloaded. Your progress is kept.</p><button class="btn" data-act="reload">Load the update</button></div>';
+  h+='<p class="small muted">'+m+' of '+LESSONS.length+' lessons mastered'+(run>1?' · '+run+' days in a row':'')+'</p>';
+  if(state.test.status!=='done') h+='<div class="card"><h3>Placement retake in progress</h3><button class="btn ghost" data-act="go" data-tab="test">Continue the placement test</button></div>';
+  if(due.length) h+='<div class="card"><h2>'+due.length+(due.length===1?' lesson is':' lessons are')+' due for review</h2><p>Reviews come first. They are what make earlier lessons stick.</p><button class="btn" data-act="review">Start review</button></div>';
+  h+=contCard(state.track||'M',!m);
+  h+='<div class="card"><h3>All subjects</h3><p class="small muted" style="margin:0">Tap one to open it. They run side by side, so switch whenever you like.</p>';
+  TRACKS.forEach(function(t){ h+=trackRow(t); });
+  h+='</div>'+installCard();
+  if(!canStore) h+='<div class="card"><h3>Progress may not be saved</h3><p class="small">This browser is blocking saved data, so closing the app can erase your progress. Copy a backup code from the More tab before you leave.</p></div>';
+  return h;
+}
+
+/* ---------- More: placement, library, notes, backup ---------- */
 function progressText(){
-  var lines=['Rebuild progress'], pl=[];
+  var lines=['Rebuild progress (app version '+APPV+')'], pl=[];
   DOMAINS.forEach(function(d){ pl.push(d.name+' '+placement(d.id).lvl); });
   lines.push('Placement levels (0 to 4): '+pl.join(', '));
-  TRACKS.forEach(function(t){ var tl=trackLessons(t.id), cp=CP(t.id), n=cpSize(t.id);
-    lines.push(t.name+': '+doneIn(t.id)+'/'+tl.length+' mastered; checkpoint '+(cp.last===null?'not taken':'best '+cp.best+'/'+n));
-    tl.forEach(function(l){ var s=LS(l.id), weak=[], g;
+  TRACKS.forEach(function(t){
+    lines.push(t.name+': '+doneIn(t.id)+'/'+trackLessons(t.id).length+' lessons mastered');
+    t.units.forEach(function(un,ui){ var u=ui+1, cp=CP(t.id,u); if(!unitLessons(t.id,u).length) return; lines.push('  Unit '+u+' checkpoint: '+(cp.last===null?'not taken':'best '+cp.best+'/'+cpSize(t.id,u))); });
+    trackLessons(t.id).forEach(function(l){ var s=LS(l.id), weak=[], g;
       if(!(s.pr[1]||s.tries||s.ex||s.done)) return;
       for(g in s.miss) if(s.miss.hasOwnProperty(g)) weak.push('q'+(parseInt(g,10)+1)+'x'+s.miss[g]);
-      lines.push('  '+l.id+' '+l.title+': '+(s.done?'mastered':'in progress')+'; practice '+s.pr[0]+'/'+s.pr[1]+'; gate resets '+s.tries+(s.done?'; review stage '+s.stage:'')+(weak.length?'; misses '+weak.join(' '):'')); }); });
+      lines.push('  '+l.id+' '+l.title+': '+(s.done?(s.tested?'tested out':'mastered'):'in progress')+'; practice '+s.pr[0]+'/'+s.pr[1]+'; gate resets '+s.tries+(s.done?'; review stage '+s.stage:'')+(weak.length?'; misses '+weak.join(' '):'')); }); });
   return lines.join('\n');
 }
 function exportCode(){ try{ return 'RBK1.'+window.btoa(unescape(encodeURIComponent(JSON.stringify(state)))); }catch(e){ return ''; } }
-function importCode(s){ try{ s=String(s).trim(); if(s.indexOf('RBK1.')!==0) return false; var o=JSON.parse(decodeURIComponent(escape(window.atob(s.slice(5))))); if(!o||o.v!==1||!o.test||typeof o.test!=='object') return false; if(!o.test.ans) o.test.ans={}; state=upgrade(o); ses=null; cur=null; state.tab='home'; save(); return true; }catch(e){ return false; } }
-function nextCard(tid){
-  var t=trackById(tid), nx=nextIn(tid), tl=trackLessons(tid), d=doneIn(tid), bar='<div class="streak" aria-hidden="true">', k;
-  for(k=0;k<tl.length;k++) bar+='<i class="'+(LS(tl[k].id).done?'f':'')+'"></i>';
-  bar+='</div>';
-  if(nx) return '<div class="card"><h2>'+esc(t.name)+'</h2><p><strong>'+esc(nx.title)+'.</strong> '+esc(nx.sub)+'</p><p class="small muted" style="margin:0">'+d+' of '+tl.length+' lessons mastered</p>'+bar+'<button class="btn" data-act="lesson" data-id="'+nx.id+'">Open the lesson</button></div>';
-  if(cpPassed(tid)) return '<div class="card"><h2>'+esc(t.name)+': unit complete</h2><p>Unit 2 will be added later. Keep up with your reviews so this one stays sharp.</p>'+bar+'</div>';
-  return '<div class="card"><h2>'+esc(t.name)+': ready for the checkpoint</h2><p>Every lesson is mastered. The checkpoint is '+cpSize(tid)+' mixed questions with no feedback until the end.</p>'+bar+'<button class="btn" data-act="cp" data-id="'+tid+'">Take the checkpoint</button></div>';
-}
-function viewHome(){
-  var h=hero(), due=dueLessons();
-  if(state.test.status!=='done') h+='<div class="card"><h3>Placement retake in progress</h3><button class="btn ghost" data-act="go" data-tab="test">Continue the placement test</button></div>';
-  if(due.length) h+='<div class="card"><h2>'+due.length+(due.length===1?' lesson is':' lessons are')+' due for review</h2><p>Reviews come first. They are what make earlier lessons stick.</p><button class="btn" data-act="review">Start review</button></div>';
-  TRACKS.forEach(function(t){ h+=nextCard(t.id); });
-  h+='<div class="card"><h3>How this works</h3><ul><li>A lesson is mastered only after you explain the idea in writing and then get eight questions right in a row. The next lesson stays locked until then.</li><li>Number problems are generated fresh each time. Concept questions are shuffled and drawn without repeats.</li><li>Mastered lessons return after 1, 3, 7, 16, 35 and 75 days, shuffled together across subjects.</li><li>Every lesson carries a neuroscience thread and a note on where older textbooks are out of date.</li></ul></div>';
-  h+=installCard();
-  if(!canStore) h+='<div class="card"><h3>Progress may not be saved</h3><p class="small">This browser is blocking saved data, so closing the app can erase your progress. Copy a backup code below before you leave.</p></div>';
+function importCode(s){ try{ s=String(s).trim(); if(s.indexOf('RBK1.')!==0) return false; var o=JSON.parse(decodeURIComponent(escape(window.atob(s.slice(5))))); if(!o||o.v!==1||!o.test||typeof o.test!=='object') return false; if(!o.test.ans) o.test.ans={}; state=upgrade(o); ses=null; cur=null; state.tab='more'; save(); return true; }catch(e){ return false; } }
+function moreRow(tab,title,sub){ return '<button class="lrow" data-act="go" data-tab="'+tab+'"><span><strong>'+title+'</strong><br><span class="small muted">'+sub+'</span></span></button>'; }
+function backBtn(){ return '<button class="btn ghost" style="margin:0 0 14px" data-act="go" data-tab="more">Back to More</button>'; }
+function viewMore(){
+  var h='<h2>More</h2>';
+  h+=moreRow('test','Placement results','Your level in each subject, with every answer explained.');
+  h+=moreRow('library','Library','Textbooks for going deeper, free ones marked.');
+  h+=moreRow('notes','Beyond the books','Recent findings and how to study so it sticks.');
+  h+='<div class="card" style="margin-top:14px"><h3>How this works</h3><ul><li>A lesson is mastered only after you explain the idea in writing and then get eight questions right in a row. The next lesson stays locked until then.</li><li>Each unit ends in a checkpoint. Passing it opens the next unit.</li><li>If your placement shows you already know a subject’s basics, you can take a checkpoint straight away to test out of that unit.</li><li>Number problems are generated fresh each time. Concept questions are shuffled and drawn without repeats.</li><li>Mastered lessons return after 1, 3, 7, 16, 35 and 75 days, shuffled together across subjects.</li><li>Every lesson carries a neuroscience thread and a note on where older textbooks are out of date.</li></ul></div>';
   h+='<div class="card"><details><summary>Back up or restore progress</summary><div><p class="small muted">Your progress lives only on this phone. Copy this code somewhere safe now and then, such as your notes app. To move to a new phone, paste it into the box below.</p>'+
      '<textarea class="code" id="bk" readonly>'+esc(exportCode())+'</textarea><button class="btn ghost" data-act="copy" data-src="bk">Copy backup code</button>'+
      '<textarea class="code" id="imp" placeholder="Paste a backup code here" style="margin-top:14px;min-height:80px"></textarea><button class="btn ghost" data-act="import">Restore from code</button>'+
      '<div class="flash" id="flash">'+esc(flash)+'</div></div></details>'+
-     '<details><summary>Progress summary</summary><div><p class="small muted">Paste this into a chat with Claude when you ask for the next units, so the pace can be set from your results.</p><textarea class="code" id="prog" readonly>'+esc(progressText())+'</textarea><button class="btn ghost" data-act="copy" data-src="prog">Copy summary</button><div class="flash"></div></div></details></div>';
-  return h;
+     '<details><summary>Progress summary</summary><div><p class="small muted">Paste this into a chat with Claude when you ask for more units, so the pace can be set from your results.</p><textarea class="code" id="prog" readonly>'+esc(progressText())+'</textarea><button class="btn ghost" data-act="copy" data-src="prog">Copy summary</button><div class="flash"></div></div></details></div>';
+  h+=installCard();
+  return h+'<p class="small muted">Rebuild, version '+APPV+'. Everything is stored on this device only.</p>';
+}
+function viewLibrary(){
+  var h=backBtn()+'<h2>Library</h2><p>Titles and authors only. Get the latest edition you can. Items tagged free are free to read or download from their publisher.</p><div class="card">';
+  LIB.forEach(function(g,gi){ h+='<details'+(gi===0?' open':'')+'><summary><span>'+esc(g.n)+'</span></summary><div><ul>';
+    g.items.forEach(function(it){ h+='<li><strong>'+esc(it[0])+'</strong>'+(it[2]?'<span class="tag">Free</span>':'')+'<br><span class="muted small">'+esc(it[1])+'</span></li>'; });
+    h+='</ul></div></details>'; });
+  return h+'</div>';
+}
+function viewNotes(){
+  var h=backBtn()+'<h2>Beyond the books</h2><p>Findings and methods too recent or too practical for the textbooks in the library.</p><div class="card">';
+  NOTES.forEach(function(n,ni){ h+='<details'+(ni===0?' open':'')+'><summary><span>'+esc(n.n)+'</span></summary><div><ul>'+n.b.map(li).join('')+'</ul></div></details>'; });
+  return h+'</div>';
 }
 
 /* ---------- Render ---------- */
-var TABS=[['home','Home'],['learn','Learn'],['review','Review'],['test','Placement']];
+var TABS=[['home','Home'],['learn','Learn'],['review','Review'],['more','More']];
+var VIEWS={home:viewHome,learn:viewLearn,review:viewReview,more:viewMore,test:viewTest,library:viewLibrary,notes:viewNotes};
+function tabOf(t){ return (t==='test'||t==='library'||t==='notes')?'more':t; }
 function render(){
-  var gate=!state.placed, pin, keep;
-  var v=gate?viewTest:({home:viewHome,learn:viewLearn,review:viewReview,test:viewTest}[state.tab]||viewHome);
-  keep=flash!==''&&state.tab==='home';
+  var gate=!state.placed, v=gate?viewTest:(VIEWS[state.tab]||viewHome), on=tabOf(state.tab), open=flash!=='', pin, fl;
   document.getElementById('app').innerHTML=v();
-  document.getElementById('tabs').innerHTML=gate?'':TABS.map(function(t){ return '<button data-act="go" data-tab="'+t[0]+'" class="'+(state.tab===t[0]?'on':'')+'"'+(state.tab===t[0]?' aria-current="page"':'')+'>'+t[1]+'</button>'; }).join('');
-  if(keep){ var det=document.querySelector('#flash'); if(det&&det.closest('details')) det.closest('details').open=true; }
+  document.getElementById('tabs').innerHTML=gate?'':TABS.map(function(t){ return '<button data-act="go" data-tab="'+t[0]+'" class="'+(on===t[0]?'on':'')+'"'+(on===t[0]?' aria-current="page"':'')+'>'+t[1]+'</button>'; }).join('');
+  if(open){ fl=document.getElementById('flash'); if(fl&&fl.closest&&fl.closest('details')) fl.closest('details').open=true; }
   flash='';
   pin=document.getElementById('pin'); if(pin){ try{ pin.focus(); }catch(e){} }
 }
@@ -449,13 +521,14 @@ document.addEventListener('click',function(ev){
   else if(act==='review'){ if(!startReview(true)) state.tab='review'; save(); render(); window.scrollTo(0,0); }
   else if(act==='mixed'){ startReview(false); render(); window.scrollTo(0,0); }
   else if(act==='revdone'){ ses=null; state.tab='review'; render(); window.scrollTo(0,0); }
-  else if(act==='cp'){ startCheckpoint(el.getAttribute('data-id')||state.track||'M'); save(); render(); window.scrollTo(0,0); }
+  else if(act==='cp'){ startCheckpoint(el.getAttribute('data-id'),parseInt(el.getAttribute('data-u'),10)||1); save(); render(); window.scrollTo(0,0); }
   else if(act==='track'){ ses=null; state.track=el.getAttribute('data-id'); state.tab='learn'; save(); render(); window.scrollTo(0,0); }
   else if(act==='tracks'){ ses=null; state.track=null; state.tab='learn'; save(); render(); window.scrollTo(0,0); }
   else if(act==='mcpick'){ if(ses){ ses.pick=parseInt(el.getAttribute('data-idx'),10); render(); } }
   else if(act==='copy'){ copyFrom(el.getAttribute('data-src')); }
   else if(act==='import'){ v=importCode(document.getElementById('imp').value); flash=v?'Progress restored.':'That code could not be read. Check that you pasted all of it.'; render(); }
   else if(act==='retake'){ if(armed==='retake'){ armed=null; state.test=blankTest(); cur=null; save(); } else armed='retake'; render(); }
+  else if(act==='reload'){ window.location.reload(); }
 });
 document.addEventListener('input',function(ev){
   var el=ev.target, b;
@@ -469,10 +542,17 @@ document.addEventListener('keydown',function(ev){
   else if(ev.key==='Enter'&&ev.target.id==='pin'){ ev.preventDefault(); b=document.getElementById('chk'); if(b&&!b.disabled) b.click(); }
 });
 
-/* ---------- Offline support and storage protection ---------- */
-if('serviceWorker' in navigator){ window.addEventListener('load',function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); }); }
+/* ---------- Offline support, updates and storage protection ---------- */
+if('serviceWorker' in navigator){
+  var hadWorker=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange',function(){
+    if(hadWorker){ updateReady=true; if(state.placed&&state.tab==='home'&&!ses) render(); }
+    hadWorker=true;
+  });
+  window.addEventListener('load',function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+}
 if(navigator.storage&&navigator.storage.persist){ try{ navigator.storage.persist(); }catch(e){} }
 
-if(/debug/.test(window.location.hash)) window.__rebuild={DOMAINS:DOMAINS,LESSONS:LESSONS,TRACKS:TRACKS,state:function(){return state;},ses:function(){return ses;},prob:curProb,parse:parseNum,save:save,render:render,placement:placement};
+if(/debug/.test(window.location.hash)) window.__rebuild={DOMAINS:DOMAINS,LESSONS:LESSONS,TRACKS:TRACKS,state:function(){return state;},ses:function(){return ses;},prob:curProb,parse:parseNum,save:save,render:render,placement:placement,nextStep:nextStep,cpPassed:cpPassed,makeProb:makeProb};
 render();
 })();

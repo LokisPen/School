@@ -1,7 +1,7 @@
 /* Service worker: makes the app work with no internet.
    IMPORTANT: change VERSION every time any file in the app changes,
    otherwise phones keep showing the old copy. */
-var VERSION = 'rebuild-v1';
+var VERSION = 'rebuild-v2';
 var FILES = [
   './',
   'index.html',
@@ -10,8 +10,15 @@ var FILES = [
   'js/util.js',
   'js/placement.js',
   'js/lessons-math.js',
+  'js/lessons-math-2.js',
   'js/lessons-physics.js',
+  'js/lessons-chemistry.js',
+  'js/lessons-biology.js',
+  'js/lessons-biochemistry.js',
   'js/lessons-anatomy.js',
+  'js/lessons-statistics.js',
+  'js/lessons-neuroscience.js',
+  'js/reference.js',
   'js/app.js',
   'icons/icon-192.png',
   'icons/icon-512.png',

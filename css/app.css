@@ -97,6 +97,9 @@ ol{margin:6px 0 10px;padding-left:24px}
 .fb p{margin-bottom:6px}
 .lrow{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;padding:14px;margin-top:8px;border:2px solid var(--line);border-radius:6px;background:var(--card);font-size:17px;line-height:1.35}
 .lrow:disabled{opacity:.45}
+.lrow .tag{flex:none}
+.card .lrow{background:transparent}
+h3 .tag{font-family:var(--body);font-weight:400;vertical-align:middle}
 .streak{display:flex;gap:4px;margin:8px 0 14px}
 .streak i{flex:1;height:10px;border-radius:2px;background:var(--line)}
 .streak i.f{background:var(--ok)}

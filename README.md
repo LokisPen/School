@@ -5,13 +5,15 @@ An offline study app you install on your phone from a web page. It starts with a
 ## What is in it now
 
 - Placement test: math, physics, chemistry, biology, biochemistry, physiology, statistics and neuroscience
-- Algebra Unit 1 (7 lessons)
-- Physics Unit 1 (3 lessons)
-- Anatomy Unit 1 (3 lessons)
+- Math: Unit 1, algebra from zero (7 lessons) and Unit 2, powers, units and logarithms (5 lessons)
+- Unit 1 (3 lessons each) of physics, chemistry, biology, biochemistry, anatomy and physiology, statistics and neuroscience
+- A checkpoint at the end of every unit, which opens the next unit
+- Testing out: if the placement test shows you know a subject's basics, you can take a unit's checkpoint without doing its lessons
 - Spaced review of everything you have mastered
-- Progress saved on the phone, with a backup code on the Home tab
+- A library of textbooks and a set of notes, under the More tab
+- Progress saved on the phone, with a backup code under the More tab
 
-Chemistry, biology, biochemistry, statistics and neuroscience lessons come later.
+More units for each subject come later. The plan is in `CLAUDE.md`.
 
 ## Turning the website on (one time)
 
@@ -35,15 +37,19 @@ Open the app from the new icon before you start the placement test, so your prog
 | `index.html` | The page that loads everything |
 | `css/app.css` | Colors and layout |
 | `js/placement.js` | Placement test questions |
-| `js/lessons-math.js`, `js/lessons-physics.js`, `js/lessons-anatomy.js` | Lessons, one file per subject |
-| `js/app.js` | The engine: test, mastery gates, review schedule, saving |
+| `js/lessons-*.js` | Lessons, one file per subject and unit |
+| `js/reference.js` | The library and notes |
+| `js/app.js` | The engine: test, mastery gates, units, review schedule, saving |
 | `js/util.js` | Small shared helpers |
 | `sw.js` | Makes the app work offline |
 | `manifest.webmanifest`, `icons/` | Name and icon for the home screen |
+| `tests/e2e.js` | An automated check of the whole app |
+| `CLAUDE.md` | Notes for whoever works on the app next, including what to build next |
 
-## Adding a subject or unit later
+## Getting an update onto your phone
 
-1. Add a new `js/lessons-<subject>.js` file in the same format as the existing ones. Lesson ids start with the subject letter, for example `c1` for chemistry.
-2. Add a `<script>` line for it in `index.html` and add the file to the list in `sw.js`.
-3. Add the subject to `TRACKS` at the top of `js/app.js` (and remove it from `SOON`).
-4. Change `VERSION` at the top of `sw.js` (for example `rebuild-v2`). Phones only pick up the new files when this changes.
+When new lessons are published, open the app while online. It downloads the update in the background and shows an "update is ready" card on the Home tab; tap it. If you do not see the card, close the app fully and open it again. Your progress is kept.
+
+## Adding a unit later
+
+See `CLAUDE.md`. In short: add a lessons file, list it in `index.html` and `sw.js`, add the unit to `TRACKS` in `js/app.js`, and change `VERSION` in `sw.js`.
